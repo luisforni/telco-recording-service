@@ -1,16 +1,19 @@
-FROM golang:1.24-alpine AS builder
-WORKDIR /app
-RUN apk add --no-cache gcc musl-dev
-COPY go.mod go.sum* ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o recording .
+FROM python:3.11-slim
 
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
-COPY --from=builder /app/recording .
-EXPOSE 8080
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8009
+
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:8080/healthz || exit 1
-ENTRYPOINT ["./recording"]
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8009/healthz')" || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8009"]
